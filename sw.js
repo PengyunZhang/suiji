@@ -1,5 +1,5 @@
-const CACHE = 'suiji-v1';
-const ASSETS = ['./', './index.html', './styles.css', './app.js', './manifest.webmanifest', './icon.svg'];
+const CACHE = 'suiji-v2';
+const ASSETS = ['./', './index.html', './styles.css?v=2', './app.js?v=2', './manifest.webmanifest', './icon.svg'];
 
 self.addEventListener('install', (e) => {
   e.waitUntil(

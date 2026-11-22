@@ -176,11 +176,11 @@ function md(src) {
         i++;
       }
       out.push(
-        '<table><thead><tr>' +
+        '<div class="md-table"><table><thead><tr>' +
           head.map((c) => '<th>' + inlineMd(c) + '</th>').join('') +
           '</tr></thead><tbody>' +
           rows.map((r) => '<tr>' + r.map((c) => '<td>' + inlineMd(c) + '</td>').join('') + '</tr>').join('') +
-          '</tbody></table>'
+          '</tbody></table></div>'
       );
       continue;
     }
