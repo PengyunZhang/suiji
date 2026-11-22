@@ -1,0 +1,211 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>随记 · 文本笔记</title>
+<meta name="description" content="轻量文本笔记：本地优先、Markdown、GitHub Gist 跨设备同步。">
+<meta name="theme-color" content="#f1f0ec">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icon.svg">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<svg class="sprite" aria-hidden="true" focusable="false">
+  <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+  <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.6-3.6"/></symbol>
+  <symbol id="i-pin" viewBox="0 0 24 24"><path d="M9 4h6l-1 6 4 4H6l4-4-1-6z"/><path d="M12 14v6"/></symbol>
+  <symbol id="i-eye" viewBox="0 0 24 24"><path d="M2 12s3.6-6 10-6 10 6 10 6-3.6 6-10 6S2 12 2 12z"/><circle cx="12" cy="12" r="2.6"/></symbol>
+  <symbol id="i-trash" viewBox="0 0 24 24"><path d="M4 7h16M9 7V5h6v2M6 7l1 13h10l1-13"/></symbol>
+  <symbol id="i-folder" viewBox="0 0 24 24"><path d="M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2V7z"/></symbol>
+  <symbol id="i-note" viewBox="0 0 24 24"><path d="M6 3h9l4 4v14H6z"/><path d="M9 12h7M9 16h5"/></symbol>
+  <symbol id="i-tag" viewBox="0 0 24 24"><path d="M4 12l8-8h8v8l-8 8z"/><circle cx="16" cy="8" r="1.4"/></symbol>
+  <symbol id="i-cloud" viewBox="0 0 24 24"><path d="M7 18a4 4 0 010-8 5.5 5.5 0 0110.5-1A3.5 3.5 0 0117 18H7z"/></symbol>
+  <symbol id="i-menu" viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h16"/></symbol>
+  <symbol id="i-back" viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7"/></symbol>
+  <symbol id="i-x" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></symbol>
+  <symbol id="i-restore" viewBox="0 0 24 24"><path d="M4 12a8 8 0 108-8 8 8 0 00-6 3"/><path d="M4 4v4h4"/></symbol>
+  <symbol id="i-sort" viewBox="0 0 24 24"><path d="M7 4v16M4 17l3 3 3-3M17 20V4M14 7l3-3 3 3"/></symbol>
+  <symbol id="i-download" viewBox="0 0 24 24"><path d="M12 4v10M8 11l4 4 4-4M5 19h14"/></symbol>
+  <symbol id="i-moon" viewBox="0 0 24 24"><path d="M20 14.5A8 8 0 019.5 4a8 8 0 1010.5 10.5z"/></symbol>
+</svg>
+
+<div class="app" id="app">
+
+  <!-- ============ 侧栏 ============ -->
+  <aside class="rail" id="rail">
+    <div class="rail-head">
+      <div class="logo">
+        <span class="logo-mark">随</span>
+        <span class="logo-text">随记</span>
+      </div>
+      <button class="icon-btn rail-close" id="btnRailClose" aria-label="关闭"><svg class="ic"><use href="#i-x"/></svg></button>
+    </div>
+
+    <button class="btn-new" id="btnNew">
+      <svg class="ic"><use href="#i-plus"/></svg>
+      <span>新建笔记</span>
+      <kbd>Ctrl N</kbd>
+    </button>
+
+    <div class="rail-scroll">
+      <div class="rail-group">
+        <div class="rail-title">
+          <span>笔记本</span>
+          <button class="mini-btn" id="btnAddFolder" title="新建笔记本"><svg class="ic"><use href="#i-plus"/></svg></button>
+        </div>
+        <ul class="nav" id="navFolders"></ul>
+      </div>
+      <div class="rail-group">
+        <div class="rail-title"><span>标签</span></div>
+        <div class="tags" id="navTags"></div>
+      </div>
+    </div>
+
+    <div class="rail-foot">
+      <button class="foot-btn" id="btnSync">
+        <span class="sync-dot" id="syncDot"></span>
+        <span id="syncLabel">未开启同步</span>
+      </button>
+      <button class="foot-btn icon-only" id="btnTheme" title="切换主题">
+        <svg class="ic"><use href="#i-moon"/></svg>
+      </button>
+    </div>
+  </aside>
+
+  <!-- ============ 列表 ============ -->
+  <section class="list" id="listPane">
+    <header class="list-head">
+      <button class="icon-btn only-mobile" id="btnMenu" aria-label="菜单"><svg class="ic"><use href="#i-menu"/></svg></button>
+      <div class="search">
+        <svg class="ic"><use href="#i-search"/></svg>
+        <input id="search" type="search" placeholder="搜索标题、正文…" autocomplete="off">
+      </div>
+    </header>
+
+    <div class="list-sub">
+      <h2 id="listTitle">全部笔记</h2>
+      <div class="list-tools">
+        <button class="chip" id="btnSort" title="切换排序"><svg class="ic"><use href="#i-sort"/></svg><span id="sortLabel">最近修改</span></button>
+        <button class="chip" id="btnExport" title="导出备份"><svg class="ic"><use href="#i-download"/></svg></button>
+      </div>
+    </div>
+
+    <div class="notes" id="noteList"></div>
+    <div class="list-foot" id="listCount"></div>
+  </section>
+
+  <!-- ============ 编辑器 ============ -->
+  <main class="editor" id="editorPane">
+    <div class="ed-head">
+      <button class="icon-btn only-mobile" id="btnBack" aria-label="返回"><svg class="ic"><use href="#i-back"/></svg></button>
+      <input id="noteTitle" class="note-title" placeholder="无标题笔记" autocomplete="off" spellcheck="false">
+      <div class="ed-actions">
+        <select id="noteFolder" class="folder-select" title="所属笔记本"></select>
+        <button class="icon-btn" id="btnPin" title="置顶"><svg class="ic"><use href="#i-pin"/></svg></button>
+        <button class="icon-btn" id="btnPreview" title="预览 / 编辑"><svg class="ic"><use href="#i-eye"/></svg></button>
+        <button class="icon-btn danger" id="btnDel" title="删除"><svg class="ic"><use href="#i-trash"/></svg></button>
+      </div>
+    </div>
+
+    <div class="ed-body" id="edBody">
+      <textarea id="noteContent" class="note-content" placeholder="开始记录…&#10;&#10;支持 Markdown：**粗体**、`代码`、# 标题、- 列表、- [ ] 待办、> 引用、[链接](https://…)、#标签" spellcheck="false"></textarea>
+      <div class="preview markdown" id="preview"></div>
+    </div>
+
+    <footer class="ed-foot">
+      <span id="metaWords">0 字</span>
+      <span class="dot-sep">·</span>
+      <span id="metaSaved">已保存</span>
+      <span class="spacer"></span>
+      <span id="metaSync" class="meta-sync"></span>
+      <button class="text-btn hidden" id="btnRestore"><svg class="ic"><use href="#i-restore"/></svg>恢复</button>
+      <button class="text-btn danger hidden" id="btnPurge">彻底删除</button>
+    </footer>
+
+    <div class="editor-empty" id="editorEmpty">
+      <div class="ee-inner">
+        <div class="ee-mark">随</div>
+        <h3>选一篇笔记，或直接开始写</h3>
+        <p>所有内容先存在这台设备的浏览器里，开启同步后会自动备份到你自己的 GitHub Gist。</p>
+        <button class="btn-primary" id="btnNewCenter">新建笔记</button>
+      </div>
+    </div>
+  </main>
+</div>
+
+<!-- ============ 同步设置 ============ -->
+<div class="modal" id="modalSync" hidden>
+  <div class="modal-card">
+    <header class="modal-head">
+      <h3>同步设置</h3>
+      <button class="icon-btn" data-close aria-label="关闭"><svg class="ic"><use href="#i-x"/></svg></button>
+    </header>
+    <div class="modal-body">
+      <p class="hint">
+        笔记会存放在你 GitHub 账号下的一个<strong>私密 Gist</strong>（只有你自己能看）。GitHub Pages 是纯静态托管，所以需要这个 Gist 来做跨设备同步。
+      </p>
+      <ol class="steps">
+        <li>打开 <a href="https://github.com/settings/tokens/new?scopes=gist&description=suiji-notes" target="_blank" rel="noopener">GitHub Token 生成页</a></li>
+        <li>勾选 <code>gist</code> 权限，期限随意，生成后复制</li>
+        <li>粘贴到下面，点"立即同步"（Gist ID 留空会自动创建）</li>
+      </ol>
+
+      <label class="field">
+        <span>Personal Access Token</span>
+        <input id="inToken" type="password" placeholder="ghp_xxxxxxxxxxxx" autocomplete="off" spellcheck="false">
+      </label>
+      <label class="field">
+        <span>Gist ID <i>（可留空）</i></span>
+        <input id="inGist" placeholder="自动创建后填入" autocomplete="off" spellcheck="false">
+      </label>
+      <label class="switch">
+        <input type="checkbox" id="inAuto">
+        <span class="switch-track"><span class="switch-thumb"></span></span>
+        <span class="switch-label">自动同步（编辑后自动推送、打开页面时自动拉取）</span>
+      </label>
+
+      <div class="sync-msg" id="syncMsg"></div>
+      <p class="hint tiny">Token 只保存在本机浏览器里，不会写进代码或仓库。</p>
+    </div>
+    <footer class="modal-foot">
+      <button class="btn-ghost" id="btnPull">仅拉取</button>
+      <button class="btn-ghost" id="btnPush">仅上传</button>
+      <button class="btn-primary" id="btnDoSync">立即同步</button>
+    </footer>
+  </div>
+</div>
+
+<!-- ============ 导出菜单 ============ -->
+<div class="modal" id="modalExport" hidden>
+  <div class="modal-card narrow">
+    <header class="modal-head">
+      <h3>导出与备份</h3>
+      <button class="icon-btn" data-close aria-label="关闭"><svg class="ic"><use href="#i-x"/></svg></button>
+    </header>
+    <div class="modal-body">
+      <button class="menu-item" data-export="json">
+        <strong>导出全部为 JSON</strong>
+        <span>完整备份，可再导入回来</span>
+      </button>
+      <button class="menu-item" data-export="md">
+        <strong>导出全部为 Markdown</strong>
+        <span>单文件 .md，方便归档或导入其他笔记软件</span>
+      </button>
+      <button class="menu-item" data-export="import">
+        <strong>从 JSON 导入</strong>
+        <span>按笔记 ID 合并，不会覆盖较新的内容</span>
+      </button>
+      <input type="file" id="fileImport" accept=".json,application/json" hidden>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast" hidden></div>
+<div class="scrim" id="scrim" hidden></div>
+
+<script src="app.js"></script>
+</body>
+</html>
