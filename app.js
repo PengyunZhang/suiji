@@ -20,6 +20,11 @@ function read(key, fallback) {
     const raw = localStorage.getItem(key);
     return raw ? JSON.parse(raw) : fallback;
   } catch (e) {
+    // 数据损坏时先把原文另存一份，避免下次写入把用户数据彻底抹掉
+    try {
+      const raw = localStorage.getItem(key);
+      if (raw) localStorage.setItem(key + '.broken.' + Date.now(), raw);
+    } catch (_) {}
     return fallback;
   }
 }
@@ -46,15 +51,40 @@ const state = {
 if (!state.data.notes) state.data.notes = [];
 if (!state.data.folders) state.data.folders = [];
 if (!state.data.deleted) state.data.deleted = {};
+// 旧版本会把搜索词存下来，这里清掉，保证打开时看到完整列表
+state.ui.q = '';
 
-const saveData = () => write(K.data, state.data);
+/* 打字时合并写入，避免每个按键都对整个数据集做一次同步 IO */
+let dataTimer = null;
+function saveData() {
+  if (dataTimer) {
+    clearTimeout(dataTimer);
+    dataTimer = null;
+  }
+  return write(K.data, state.data);
+}
+function saveDataSoon() {
+  if (dataTimer) clearTimeout(dataTimer);
+  dataTimer = setTimeout(() => {
+    dataTimer = null;
+    write(K.data, state.data);
+  }, 300);
+}
 const saveSync = () => write(K.sync, state.sync);
-const saveUi = () => write(K.ui, state.ui);
+/* 搜索词不持久化：否则下次打开会莫名其妙只剩几条笔记 */
+const saveUi = () => {
+  const copy = Object.assign({}, state.ui);
+  delete copy.q;
+  write(K.ui, copy);
+};
 
 const DEFAULT_FOLDER = 'f-default';
-if (!state.data.folders.some((f) => f.id === DEFAULT_FOLDER)) {
-  state.data.folders.unshift({ id: DEFAULT_FOLDER, name: '默认笔记本', createdAt: nowTs() });
+function ensureDefaultFolder() {
+  if (!state.data.folders.some((f) => f.id === DEFAULT_FOLDER)) {
+    state.data.folders.unshift({ id: DEFAULT_FOLDER, name: '默认笔记本', createdAt: nowTs() });
+  }
 }
+ensureDefaultFolder();
 
 /* ---------------- 小工具 ---------------- */
 function esc(s) {
@@ -374,6 +404,10 @@ function excerptOf(note, n = 96) {
 }
 
 function renderList() {
+  // 笔记本被删掉（或别的设备删了）时回退到全部，别卡在一个空视图里
+  if (state.ui.view.type === 'folder' && !state.data.folders.some((f) => f.id === state.ui.view.value)) {
+    state.ui.view = { type: 'all', value: null };
+  }
   const list = sortedFiltered();
   const box = $('#noteList');
   const v = state.ui.view;
@@ -431,7 +465,6 @@ function renderFolderSelect() {
   sel.innerHTML = state.data.folders.map((f) => `<option value="${f.id}">${esc(f.name)}</option>`).join('');
 }
 
-let previewTimer;
 function renderPreview() {
   const note = currentNote();
   $('#preview').innerHTML = note ? md(note.content) : '';
@@ -447,10 +480,15 @@ function applyMode() {
   if (mode !== 'edit') renderPreview();
 }
 
+let editorNoteId = null;
 function renderEditor() {
   const note = currentNote();
   const empty = $('#editorEmpty');
   const hasNote = !!note;
+  const curId = hasNote ? note.id : null;
+  // 只有切换到另一篇时才回写输入框，避免后台同步把正在输入的正文覆盖掉
+  const switched = curId !== editorNoteId;
+  editorNoteId = curId;
 
   empty.classList.toggle('show', !hasNote);
   $('#noteTitle').disabled = !hasNote;
@@ -468,8 +506,10 @@ function renderEditor() {
     return;
   }
 
-  $('#noteTitle').value = note.title || '';
-  $('#noteContent').value = note.content || '';
+  if (switched) {
+    $('#noteTitle').value = note.title || '';
+    $('#noteContent').value = note.content || '';
+  }
   $('#noteFolder').value = note.folderId || DEFAULT_FOLDER;
   $('#btnPin').classList.toggle('active', !!note.pinned);
   $('#btnDel').classList.toggle('hidden', !!note.deletedAt);
@@ -502,7 +542,19 @@ function renderAll() {
 /* ============================================================
    笔记操作
    ============================================================ */
+/* 切走时丢弃"标题和正文都空"的草稿，避免 Ctrl+N 按出一堆空笔记 */
+function dropEmptyDraft() {
+  const n = currentNote();
+  if (!n || n.deletedAt) return;
+  if ((n.title || '').trim() || (n.content || '').trim()) return;
+  state.data.deleted[n.id] = nowTs(); // 留墓碑，防止同步时被别的设备推回来
+  state.data.notes = state.data.notes.filter((x) => x.id !== n.id);
+  if (state.ui.activeId === n.id) state.ui.activeId = null;
+  saveData();
+}
+
 function newNote() {
+  dropEmptyDraft();
   const v = state.ui.view;
   const note = {
     id: uid(),
@@ -517,6 +569,11 @@ function newNote() {
   state.data.notes.push(note);
   state.ui.activeId = note.id;
   if (v.type === 'trash') state.ui.view = { type: 'all', value: null };
+  // 搜索状态下新建，笔记会被过滤掉看不见，顺手清空搜索
+  if (state.ui.q) {
+    state.ui.q = '';
+    $('#search').value = '';
+  }
   saveData();
   saveUi();
   renderAll();
@@ -526,6 +583,8 @@ function newNote() {
 }
 
 function openNote(id, { focusTitle = false } = {}) {
+  if (!getNote(id)) return;
+  if (state.ui.activeId !== id) dropEmptyDraft();
   if (!getNote(id)) return;
   state.ui.activeId = id;
   saveUi();
@@ -548,13 +607,17 @@ function touchNote(note) {
 function deleteNote(id) {
   const note = getNote(id);
   if (!note || note.deletedAt) return;
+  // 删除后自动选中相邻一篇，避免编辑区突然空掉
+  const order = sortedFiltered().map((n) => n.id);
+  const idx = order.indexOf(id);
   note.deletedAt = nowTs();
   note.updatedAt = note.deletedAt;
   note.pinned = false;
   saveData();
   if (state.ui.activeId === id) {
-    state.ui.activeId = null;
-    if (window.innerWidth <= 820) closeEditor();
+    const nextId = order[idx + 1] || order[idx - 1] || null;
+    state.ui.activeId = nextId && nextId !== id ? nextId : null;
+    if (window.innerWidth <= 820 && !state.ui.activeId) closeEditor();
   }
   saveUi();
   renderAll();
@@ -626,31 +689,40 @@ function syncStatusIdle() {
 }
 
 async function gh(path, opts = {}) {
-  const res = await fetch(API + path, {
-    ...opts,
-    headers: Object.assign(
-      {
-        Authorization: 'Bearer ' + state.sync.token,
-        Accept: 'application/vnd.github+json',
-      },
-      opts.body ? { 'Content-Type': 'application/json' } : {},
-      opts.headers || {}
-    ),
-  });
-  if (!res.ok) {
-    let msg = res.status + ' ' + res.statusText;
-    try {
-      const j = await res.json();
-      if (j && j.message) msg = j.message;
-    } catch (e) {}
-    const err = new Error(msg);
-    err.status = res.status;
-    throw err;
+  // 没有超时的话，一次卡住的请求会让 syncBusy 永远为真，之后的同步全部被跳过
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 20000);
+  try {
+    const res = await fetch(API + path, {
+      ...opts,
+      signal: ctrl.signal,
+      headers: Object.assign(
+        {
+          Authorization: 'Bearer ' + state.sync.token,
+          Accept: 'application/vnd.github+json',
+        },
+        opts.body ? { 'Content-Type': 'application/json' } : {},
+        opts.headers || {}
+      ),
+    });
+    if (!res.ok) {
+      let msg = res.status + ' ' + res.statusText;
+      try {
+        const j = await res.json();
+        if (j && j.message) msg = j.message;
+      } catch (e) {}
+      const err = new Error(msg);
+      err.status = res.status;
+      throw err;
+    }
+    return res.status === 204 ? null : res.json();
+  } finally {
+    clearTimeout(timer);
   }
-  return res.status === 204 ? null : res.json();
 }
 
 function friendlyError(e) {
+  if (e && e.name === 'AbortError') return '请求超时（20 秒），请检查网络或代理';
   if (e.status === 401) return 'Token 无效或已过期，请重新生成';
   if (e.status === 403) return '权限不足或被限流，请检查 Token 的 gist 权限';
   if (e.status === 404) return '找不到该 Gist，请检查 Gist ID 或权限';
@@ -711,10 +783,14 @@ async function pullRemote() {
     const r = await fetch(file.raw_url, { headers: { Authorization: 'Bearer ' + state.sync.token } });
     content = await r.text();
   }
+  if (!content || !content.trim()) return null;
   try {
-    return JSON.parse(content);
+    const data = JSON.parse(content);
+    if (!data || typeof data !== 'object') throw new Error('bad payload');
+    return data;
   } catch (e) {
-    return null;
+    // 关键：解析失败绝不能继续往下推送，否则会用本地数据覆盖云端
+    throw new Error('云端数据无法解析，已中止本次同步（避免覆盖云端笔记）');
   }
 }
 
@@ -757,6 +833,7 @@ async function syncNow({ silent = false, direction = 'both' } = {}) {
         state.data.notes = merged.notes;
         state.data.folders = merged.folders;
         state.data.deleted = merged.deleted;
+        ensureDefaultFolder();
         saveData();
       }
       if (direction === 'both') await pushRemote();
@@ -783,9 +860,7 @@ async function syncNow({ silent = false, direction = 'both' } = {}) {
       msg.textContent = '✗ ' + m;
     }
     if (!silent) toast('同步失败：' + m);
-    setTimeout(() => {
-      if (!syncBusy) syncStatusIdle();
-    }, 4000);
+    // 保留失败状态，不要 4 秒后假装已同步；下次成功时 syncStatusIdle 会恢复
   }
 }
 
@@ -859,6 +934,7 @@ function importJson(file) {
       state.data.notes = merged.notes;
       state.data.folders = merged.folders;
       state.data.deleted = merged.deleted;
+      ensureDefaultFolder();
       saveData();
       renderAll();
       scheduleSync();
@@ -1072,7 +1148,7 @@ function bind() {
     note.title = $('#noteTitle').value;
     note.content = $('#noteContent').value;
     note.updatedAt = nowTs();
-    saveData();
+    saveDataSoon();
     $('#metaSaved').textContent = '编辑中…';
     clearTimeout(typing);
     typing = setTimeout(() => {
@@ -1143,7 +1219,6 @@ function bind() {
     }
     await syncNow({ silent: false });
     $('#inGist').value = state.sync.gistId || '';
-    syncStatusIdle();
   });
   $('#btnPull').addEventListener('click', async () => {
     state.sync.token = $('#inToken').value.trim();
@@ -1199,6 +1274,7 @@ function bind() {
 
   /* 快捷键 */
   document.addEventListener('keydown', (e) => {
+    if (e.isComposing) return; // 中文输入法组合中，Esc 只用于取消候选
     const mod = e.ctrlKey || e.metaKey;
     if (mod && e.key.toLowerCase() === 'n') {
       e.preventDefault();
@@ -1229,9 +1305,17 @@ function bind() {
     if (state.sync.auto && state.sync.token && Date.now() - state.sync.lastAt > 60000) syncNow({ silent: true });
   });
   document.addEventListener('visibilitychange', () => {
-    if (document.visibilityState === 'visible' && state.sync.auto && state.sync.token && Date.now() - state.sync.lastAt > 60000) {
-      syncNow({ silent: true });
+    if (document.visibilityState === 'hidden') {
+      if (dataTimer) saveData(); // 切走前把还没落盘的输入立刻写入
+      return;
     }
+    if (state.sync.auto && state.sync.token && Date.now() - state.sync.lastAt > 60000) syncNow({ silent: true });
+  });
+  window.addEventListener('pagehide', () => {
+    if (dataTimer) saveData();
+  });
+  window.addEventListener('beforeprint', () => {
+    renderPreview(); // 编辑模式下 preview 是空的，打印前补渲染
   });
 }
 
@@ -1254,13 +1338,17 @@ function toggleScrim() {
 /* ============================================================
    启动
    ============================================================ */
+const WELCOME_ID = 'n-welcome';
+
 function seed() {
   if (read('suiji.seeded', false)) return;
   write('suiji.seeded', true);
   if (state.data.notes.length) return;
+  // 固定 id：多台设备各自生成欢迎笔记时，同步会按 id 合并成一篇，而不是越积越多
+  if (state.data.deleted[WELCOME_ID]) return;
 
   const welcome = {
-    id: uid(),
+    id: WELCOME_ID,
     title: '欢迎使用随记',
     folderId: DEFAULT_FOLDER,
     pinned: true,
@@ -1320,9 +1408,6 @@ function init() {
     setTimeout(() => syncNow({ silent: true }), 800);
   }
 
-  if (state.ui.activeId && getNote(state.ui.activeId) && window.innerWidth > 820) {
-    document.body.classList.add('editing');
-  }
   toggleScrim();
 
   if ('serviceWorker' in navigator && location.protocol.startsWith('http')) {

@@ -1,2 +1,5 @@
 node_modules/
 .DS_Store
+# 本地推送脚本，不进仓库
+推送更新.bat
+*.local.*

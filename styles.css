@@ -403,6 +403,7 @@ input, textarea, select { font-family: inherit; color: inherit; }
 .search input::-webkit-search-cancel-button { -webkit-appearance: none; }
 
 .only-mobile { display: none !important; }
+.only-phone { display: none !important; }
 
 .icon-btn {
   width: 30px;
@@ -1036,6 +1037,7 @@ body.preview-only .preview { display: block; }
 }
 
 @media (max-width: 820px) {
+  .only-phone { display: grid !important; }
   .app { grid-template-columns: minmax(0, 1fr); }
   body.split .ed-body { grid-template-columns: minmax(0, 1fr); gap: 0; }
   body.split .preview { display: none; }
@@ -1057,7 +1059,7 @@ body.preview-only .preview { display: block; }
 
   .note-title { font-size: 17.5px; }
   .folder-select { max-width: 84px; }
-  .ed-head { padding: 8px 10px 4px; }
+  .ed-head { padding: 8px 12px 4px 10px; }
   .ed-body { padding: 0 10px; }
   .ed-foot { padding-left: 12px; padding-right: 12px; }
   .card { padding: 10px 10px 9px; }
